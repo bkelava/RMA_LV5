@@ -41,9 +41,9 @@ class MainActivity : AppCompatActivity(), View.OnClickListener {
         }
 
         this.mSoundPool.setOnLoadCompleteListener{_, _, _ -> mLoaded = true}
-        this.mSoundMap[R.raw.zdravko] = this.mSoundPool.load(this, R.raw.zdravko, 1)
-        this.mSoundMap[R.raw.mark] = this.mSoundPool.load(this, R.raw.mark, 1)
-        this.mSoundMap[R.raw.tomislav] = this.mSoundPool.load(this, R.raw.tomislav, 1)
+        this.mSoundMap[R.raw.zdravko] = this.mSoundPool.load(Soundpool.ApplicationContext, R.raw.zdravko, 1)
+        this.mSoundMap[R.raw.mark] = this.mSoundPool.load(Soundpool.ApplicationContext, R.raw.mark, 1)
+        this.mSoundMap[R.raw.tomislav] = this.mSoundPool.load(Soundpool.ApplicationContext, R.raw.tomislav, 1)
     }
 
     override fun onClick(v: View?) {
