@@ -5,7 +5,7 @@ import android.app.Application
 import android.content.Context
 
 //vlastita klasa koja predstavlja aplikaciju
-class WhereIsBK: Application() {
+class WhereIsBK : Application() {
     companion object {
         lateinit var ApplicationContext: Context
             private set

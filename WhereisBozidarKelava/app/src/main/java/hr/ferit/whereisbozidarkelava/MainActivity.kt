@@ -10,10 +10,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.location.*
-import android.media.AudioManager
 import android.media.MediaScannerConnection
 import android.media.RingtoneManager
-import android.media.SoundPool
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,11 +22,9 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.google.android.gms.maps.*
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -36,27 +32,19 @@ import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.collections.HashMap
-
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
-    private val PHOTO_CODE = 1
-    private val REQUEST_LOCATION_PERMISSION = 12
+    private var soundPoolManager: SoundPoolManager = SoundPoolManager()
+    private val values: Values = Values()
 
     private lateinit var googleMap: GoogleMap
-    private lateinit var mapFragment: MapFragment
     private lateinit var customOnMapClickListener: GoogleMap.OnMapClickListener
 
     private lateinit var locationManager: LocationManager
     private lateinit var locationListener: LocationListener
-
-    private lateinit var soundPool: SoundPool
-    private var mLoaded = false
-    private var mSoundMap: HashMap<Int, Int> = HashMap()
 
     private var adress: String = ""
     private var photoUri: Uri? = null
@@ -73,19 +61,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PHOTO_CODE && resultCode == Activity.RESULT_OK) {
+        if (requestCode == values.getPhotoCode() && resultCode == Activity.RESULT_OK) {
             MediaScannerConnection.scanFile(
                 WhereIsBK.ApplicationContext,
                 arrayOf(photoUri?.path),
                 null
             ) { _, _ -> }
-            
+
             val mFile: File = File(photoPath)
             val intent = Intent(Intent.ACTION_VIEW).setDataAndType(
-                FileProvider.getUriForFile(WhereIsBK.ApplicationContext, "hr.ferit.android.fileprovider", mFile), "image/*"
+                FileProvider.getUriForFile(
+                    WhereIsBK.ApplicationContext,
+                    values.getAuthorityValue(),
+                    mFile
+                ), "image/*"
             ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-
-
 
             val pendingIntent = PendingIntent.getActivity(
                 WhereIsBK.ApplicationContext,
@@ -96,7 +86,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             val notificationBuilder = NotificationCompat.Builder(this, getChannelId(CHANNEL_LIKES))
             notificationBuilder.setAutoCancel(true)
-                .setContentTitle("WHERE IS BOZO?")
+                .setContentTitle("New Image Saved!")
                 .setContentText(storageDir.toString())
                 .setSmallIcon(R.drawable.envelope)
                 .setVibrate(longArrayOf(1000, 1000))
@@ -112,9 +102,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onStart() {
         super.onStart()
-        if (!hasPermissions()) {
-            requestPermissions()
-        }
+        if (hasPermissions())
+            if (!hasPermissions()) {
+                requestPermissions()
+            }
     }
 
     override fun onResume() {
@@ -167,18 +158,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun initialize() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            this.soundPool = SoundPool.Builder().setMaxStreams(1).build()
-        } else {
-            this.soundPool = SoundPool(10, AudioManager.STREAM_MUSIC, 0)
-        }
-        this.soundPool.setOnLoadCompleteListener { _, _, _ -> mLoaded = true }
-        mSoundMap[R.raw.sound] = this.soundPool.load(this, R.raw.sound, 1)
-
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+        soundPoolManager.init()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             createNotificationChannels()
-
-
         btnCamera.setOnClickListener() {
             takePicture()
         }
@@ -194,7 +176,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         ) {
             return
         }
-        val startLocation: Location? = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        val startLocation: Location? =
+            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
         if (startLocation != null) updateAddress(startLocation)
         this.locationListener = myLocationListener()
         (gmGoogleMap as? SupportMapFragment)?.getMapAsync(this)
@@ -202,48 +185,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             GoogleMap.OnMapClickListener { latLng ->
                 val newMarkerOptions = MarkerOptions()
                 newMarkerOptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.pin))
-                newMarkerOptions.title("HERE I AM :)")
-                newMarkerOptions.snippet(getAddress(latLng.latitude, latLng.longitude))
+                newMarkerOptions.title("WOOOOOW!")
+                newMarkerOptions.snippet(
+                    "FINALLY I KNOW WHERE I AM --> " + getAddress(
+                        latLng.latitude,
+                        latLng.longitude
+                    )
+                )
                 newMarkerOptions.position(latLng)
                 googleMap.addMarker(newMarkerOptions)
-                playSound(R.raw.sound)
+                soundPoolManager.playSound(R.raw.sound)
             }
     }
 
-    private inner class myLocationListener : LocationListener {
-        override fun onLocationChanged(location: Location?) {
-            updateAddress(location)
-        }
-
-        override fun onStatusChanged(
-            provider: String,
-            status: Int,
-            extras: Bundle
-        ) {
-        }
-
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
-
-    private fun getAddress(latitute: Double, longitude: Double): String? {
+    private fun getAddress(latitude: Double, longitude: Double): String? {
         val geocoder = Geocoder(this, Locale.getDefault())
-        try {
-            val nearByAddresses: List<Address> =
-                geocoder.getFromLocation(latitute, longitude, 1)
-            if (nearByAddresses.size > 0) {
-                val stringBuilder = StringBuilder()
-                val nearestAddress: Address = nearByAddresses[0]
-                stringBuilder
-                    .append(nearestAddress.getAddressLine(0))
-                    .append("\n")
-                    .append(nearestAddress.getLocality())
-                    .append("\n")
-                    .append(nearestAddress.getCountryName())
-                return stringBuilder.toString()
-            }
-        } catch (e: IOException) {
-            Log.e("ErrorX", e.toString())
+        val nearByAddresses: List<Address> =
+            geocoder.getFromLocation(latitude, longitude, 1)
+        if (nearByAddresses.size > 0) {
+            val stringBuilder = StringBuilder()
+            val nearestAddress: Address = nearByAddresses[0]
+            stringBuilder
+                .append(nearestAddress.getAddressLine(0))
+                .append("\n")
+                .append(nearestAddress.getLocality())
+                .append("\n")
+                .append(nearestAddress.getCountryName())
+            return stringBuilder.toString()
         }
         return "0.0"
     }
@@ -253,25 +221,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         tvLongitude.text = "Longitude " + location.longitude.toString()
         if (Geocoder.isPresent()) {
             val geocoder = Geocoder(this, Locale.getDefault())
-            try {
-                val nearByAddresses: List<Address> = geocoder.getFromLocation(
-                    location.getLatitude(), location.getLongitude(), 1
-                )
-                if (nearByAddresses.size > 0) {
-                    val stringBuilder = StringBuilder()
-                    val nearestAddress: Address = nearByAddresses[0]
-                    stringBuilder.append(nearestAddress.getAddressLine(0)).append("\n")
-                        .append(nearestAddress.getLocality()).append("\n")
-                        .append(nearestAddress.getCountryName())
-                    tvLocationDescription.append(stringBuilder.toString())
-                    adress = nearestAddress.getAddressLine(0)
-                }
-            } catch (e: IOException) {
-                e.printStackTrace()
+            val nearByAddresses: List<Address> = geocoder.getFromLocation(
+                location.getLatitude(), location.getLongitude(), 1
+            )
+            if (nearByAddresses.size > 0) {
+                val stringBuilder = StringBuilder()
+                val nearestAddress: Address = nearByAddresses[0]
+                stringBuilder.append(nearestAddress.getAddressLine(0)).append("\n")
+                    .append(nearestAddress.getLocality()).append("\n")
+                    .append(nearestAddress.getCountryName())
+                tvLocationDescription.append(stringBuilder.toString())
+                adress = nearestAddress.getAddressLine(0)
             }
         }
     }
-
 
     private fun startTracking() {
         val criteria = Criteria()
@@ -300,9 +263,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun takePicture() {
         val takePhotoIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         val photoFile: File = createPhotoFile()
-        val uri = FileProvider.getUriForFile(WhereIsBK.ApplicationContext, "hr.ferit.android.fileprovider", photoFile)
+        val uri = FileProvider.getUriForFile(
+            WhereIsBK.ApplicationContext,
+            values.getAuthorityValue(),
+            photoFile
+        )
         takePhotoIntent.putExtra(MediaStore.EXTRA_OUTPUT, uri)
-        startActivityForResult(takePhotoIntent, PHOTO_CODE)
+        startActivityForResult(takePhotoIntent, values.getPhotoCode())
     }
 
     private fun createPhotoFile(): File {
@@ -314,68 +281,34 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return image
     }
 
-    fun playSound(selectedSound: Int) {
-        val soundID: Int = mSoundMap[selectedSound] ?: 0
-        this.soundPool.play(soundID, 1f, 1f, 1, 0, 1f)
-    }
-
-
-    private fun requestPermissions() {
-        val permissions = arrayOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
-        ActivityCompat.requestPermissions(this, permissions, 0)
-    }
-
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<String?>,
         grantResults: IntArray
     ) {
         when (requestCode) {
-            REQUEST_LOCATION_PERMISSION -> if (grantResults.size > 0) {
+            values.getRequestLocationPermission() -> if (grantResults.size > 0) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.d("MainActivity", "Permission granted")
+                    Log.d("TAG", "GOT IT!")
                 } else {
-                    askForPermission()
+                    askForPermission(tvLatitude, tvLongitude)
                 }
             }
         }
     }
 
-    private fun askForPermission() {
-        val explain = ActivityCompat.shouldShowRequestPermissionRationale(
-            this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION
-        )
-        if (explain) {
-            displayDialog()
-        } else {
-            tvLatitude.setText("NEED PERMISSION")
-            tvLongitude.setText("NEED PERMISSION")
+    private inner class myLocationListener : LocationListener {
+        override fun onLocationChanged(location: Location?) {
+            updateAddress(location)
         }
-    }
 
-    private fun displayDialog() {
-        val dialogBuilder: AlertDialog.Builder = AlertDialog.Builder(this)
-        dialogBuilder.setTitle("Location permission")
-            .setMessage("NEED PERMISSION")
-            .setNegativeButton("DISMISS",
-                DialogInterface.OnClickListener { dialog, which -> dialog.cancel() })
-            .setPositiveButton("ALLOW",
-                DialogInterface.OnClickListener { dialog, which ->
-                    requestPermissions()
-                    dialog.cancel()
-                })
-            .show()
-    }
+        override fun onStatusChanged(
+            provider: String,
+            status: Int,
+            extras: Bundle
+        ) {
+        }
 
-    private fun hasPermissions(): Boolean {
-        val LocationPermission = Manifest.permission.ACCESS_FINE_LOCATION
-        val status = ContextCompat.checkSelfPermission(this, LocationPermission)
-        val status1 = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-        val status2 =
-            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        return status == PackageManager.PERMISSION_GRANTED && status1 == PackageManager.PERMISSION_GRANTED && status2 == PackageManager.PERMISSION_GRANTED
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
     }
 }
